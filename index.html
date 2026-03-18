@@ -90,7 +90,7 @@
     <span>← →</span> เดิน &nbsp;
     <span>↑ / Z</span> กระโดด (2x) &nbsp;
     <span>X</span> โจมตี &nbsp;
-    <span>SHIFT</span> วิ่ง
+    <span>↓ บนศัตรู</span> กระโดดทับ ★x2
   </div>
   <div id="mobile-btns">
     <div style="display:flex;gap:10px">
@@ -652,7 +652,29 @@ function update(){
       });
     }
 
-    // hit player — only once per frame total
+    // ── STOMP (Mario style) ── player falling onto enemy top ────────────────
+    const stomping =
+      P.vy > 0 &&                              // falling down
+      P.y + P.h - P.vy <= e.y + 8 &&          // was above enemy last frame
+      P.x + P.w > e.x + 4 &&                  // horizontal overlap
+      P.x < e.x + e.w - 4;
+
+    if(stomping){
+      // kill instantly regardless of HP
+      e.alive = false;
+      const pts = (e.type==='skeleton'?30:e.type==='bat'?20:10) * 2; // bonus x2 for stomp
+      score += pts;
+      burst(e.x+e.w/2, e.y, '#ffee44', 14, 1.8);
+      float(e.x+e.w/2, e.y-10, '★'+pts, '#ffee44');
+      updateHUD();
+      // bounce player up
+      P.vy = JUMP * 0.6;
+      P.jumps = 1; // allow one more jump after stomp
+      shakeT = 4;
+      return; // skip rest of this enemy's logic
+    }
+
+    // ── HIT PLAYER (side collision) — only if not stomping ──────────────────
     if(!playerHitThisFrame){
       const pr={x:P.x+4,y:P.y,w:P.w-8,h:P.h};
       const er={x:e.x,y:e.y,w:e.w,h:e.h};
@@ -665,7 +687,7 @@ function update(){
       }
     }
 
-    // player attack — one hit per swing (track by atkId)
+    // ── SWORD ATTACK ─────────────────────────────────────────────────────────
     if(P.atk>0 && e.lastHitAtkId !== P.atkId){
       const hb=P.hitbox();
       const er2={x:e.x,y:e.y,w:e.w,h:e.h};
