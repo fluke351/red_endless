@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Red's Endless Run</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#0a0010;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    min-height:100vh;
+    font-family:'Press Start 2P',monospace;
+    overflow:hidden;
+  }
+  #wrap { position:relative; display:flex; flex-direction:column; align-items:center; }
+
+  #hud {
+    width:800px; background:#0d0005;
+    border:3px solid #8b1a40; border-bottom:none;
+    padding:7px 16px;
+    display:flex; justify-content:space-between; align-items:center;
+    color:#fff; font-size:8px; gap:8px;
+  }
+  #hp-wrap { display:flex; align-items:center; gap:6px; }
+  #hp-bar { width:90px; height:11px; background:#1a0010; border:2px solid #8b1a40; overflow:hidden; }
+  #hp-fill { height:100%; background:linear-gradient(90deg,#cc2040,#ff5577); transition:width .2s; }
+  #canvas { display:block; border:3px solid #8b1a40; image-rendering:pixelated; }
+  #ctrl-bar {
+    width:800px; background:#0d0005;
+    border:3px solid #8b1a40; border-top:none;
+    padding:5px 16px; display:flex;
+    justify-content:center; gap:20px;
+    color:#666; font-size:7px;
+  }
+  #ctrl-bar span { color:#cc3355; }
+
+  .screen {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.9); z-index:10; gap:18px;
+  }
+  .screen h1 { color:#ff3366; font-size:20px; text-shadow:0 0 20px #ff0033,4px 4px 0 #550011; animation:flk 2s infinite; }
+  .screen h2 { color:#ffcc44; font-size:12px; }
+  .screen p  { color:#aaa; font-size:8px; text-align:center; line-height:2.2; max-width:420px; }
+  .btn {
+    background:#7a1030; color:#fff; border:3px solid #ff3366;
+    padding:11px 26px; font-family:'Press Start 2P',monospace; font-size:9px;
+    cursor:pointer; transition:all .1s; text-shadow:2px 2px 0 #000;
+    box-shadow:4px 4px 0 #220008;
+  }
+  .btn:hover { background:#aa1040; transform:translate(-2px,-2px); box-shadow:6px 6px 0 #220008; }
+  .btn:active { transform:translate(2px,2px); box-shadow:2px 2px 0 #220008; }
+  @keyframes flk { 0%,94%,100%{opacity:1} 95%{opacity:.6} 97%{opacity:.3} 99%{opacity:.9} }
+
+  /* Mobile buttons */
+  #mobile-btns {
+    display:none;
+    width:800px; background:#0d0005;
+    border:3px solid #8b1a40; border-top:none;
+    padding:10px 16px;
+    justify-content:space-between; align-items:center;
+  }
+  .mb { 
+    background:#2a0015; color:#ff3366; border:2px solid #8b1a40;
+    padding:14px 20px; font-family:'Press Start 2P',monospace; font-size:14px;
+    cursor:pointer; user-select:none; -webkit-user-select:none;
+    border-radius:4px; min-width:60px; text-align:center;
+  }
+  .mb:active { background:#4a0025; transform:scale(.95); }
+  @media (max-width:820px) {
+    #canvas,#hud,#ctrl-bar,#mobile-btns { width:100vw !important; }
+    #mobile-btns { display:flex; }
+    #ctrl-bar { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div id="hp-wrap">❤️ <div id="hp-bar"><div id="hp-fill"></div></div></div>
+    <div>DIST: <span id="dist">0</span>m</div>
+    <div>SCORE: <span id="sc">0</span></div>
+    <div>WORLD BEST: <span id="best">0</span></div>
+  </div>
+  <canvas id="canvas" width="800" height="450"></canvas>
+  <div id="ctrl-bar">
+    <span>← →</span> เดิน &nbsp;
+    <span>↑ / Z</span> กระโดด (2x) &nbsp;
+    <span>X</span> โจมตี &nbsp;
+    <span>SHIFT</span> วิ่ง
+  </div>
+  <div id="mobile-btns">
+    <div style="display:flex;gap:10px">
+      <div class="mb" id="mb-left">◀</div>
+      <div class="mb" id="mb-right">▶</div>
+    </div>
+    <div class="mb" id="mb-jump">↑ JUMP</div>
+    <div class="mb" id="mb-atk">⚔ ATK</div>
+  </div>
+
+  <!-- Title -->
+  <div class="screen" id="scr-title">
+    <h1>RED'S ENDLESS RUN</h1>
+    <h2>∞ ไม่มีวันสิ้นสุด ∞</h2>
+    <p>วิ่งไปข้างหน้าให้ไกลที่สุด!<br>โลกจะสร้างขึ้นมาเรื่อยๆ ไม่มีวันจบ<br>ศัตรูและอุปสรรคจะยากขึ้นเรื่อยๆ<br>ตามระยะทางที่เดินทาง</p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+      <label style="color:#aaa;font-size:7px;letter-spacing:1px">ชื่อของคุณ</label>
+      <input id="name-input" type="text" maxlength="12" placeholder="HERO"
+        style="background:#1a0010;color:#ff3366;border:2px solid #8b1a40;padding:8px 14px;
+        font-family:'Press Start 2P',monospace;font-size:10px;width:200px;text-align:center;
+        outline:none;text-transform:uppercase;"
+        oninput="this.value=this.value.toUpperCase()"
+      />
+    </div>
+    <div id="title-world-best" style="color:#ffcc44;font-size:8px;text-align:center;line-height:2"></div>
+    <button class="btn" onclick="startGame()">▶ เริ่มผจญภัย</button>
+  </div>
+
+  <!-- Game Over -->
+  <div class="screen" id="scr-over" style="display:none">
+    <h1>GAME OVER</h1>
+    <p style="color:#ff6688">เรดล้มลงในการผจญภัย...</p>
+    <div style="color:#ffcc44;font-size:10px;line-height:2.5">
+      ระยะทาง: <span id="go-dist">0</span>m<br>
+      คะแนน: <span id="go-sc">0</span><br>
+      <span id="go-best-line" style="color:#aaffaa"></span>
+    </div>
+    <button class="btn" onclick="startGame()">▶ เล่นอีกครั้ง</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const W=800, H=450, GY=H-60;
+const GRAV=0.55, JUMP=-13.5;
+
+// ── PALETTE ───────────────────────────────────────────────────────────────────
+const C={
+  skin:'#f5c9a0',skinD:'#d09060',
+  hair:'#c03030',hairD:'#7a1a1a',
+  coat:'#8b2020',coatD:'#5a1010',
+  cream:'#d4b896',creamD:'#a08060',
+  pants:'#4a5560',pantsD:'#2a3540',
+  boot:'#5a3520',bootD:'#3a2010',
+  belt:'#6b4020',eye:'#cc3030',
+};
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let running=false, score=0, best=0;
+let worldX=0, prevWorldX=0;
+
+// ── PERSISTENT BEST SCORE (shared across all players) ───────────────────────
+async function loadBest(){
+  try{
+    const r=await window.storage.get('red_endless_best', true);
+    if(r){
+      const data=JSON.parse(r.value);
+      best=data.score||0;
+      const holder=data.name||'???';
+      document.getElementById('title-world-best').innerHTML=
+        `🏆 WORLD BEST<br>${holder}: ${best}`;
+      updateHUD();
+    }
+  }catch(e){}
+}
+async function saveBest(){
+  const name=(document.getElementById('name-input').value.trim().toUpperCase()||'ANON').slice(0,12);
+  try{
+    await window.storage.set('red_endless_best', JSON.stringify({score:best,name}), true);
+  }catch(e){}
+}
+let keys={}, mkeys={};
+let shakeT=0;
+let particles=[], floats=[];
+let bgStars=[];
+
+// ── PLAYER ────────────────────────────────────────────────────────────────────
+const P={
+  x:140, y:GY, w:28, h:44,
+  vx:0, vy:0, onGround:false,
+  jumps:0, maxJumps:2,
+  hp:5, maxHp:5,
+  inv:0,          // invincibility frames
+  atk:0,          // attack animation frames
+  atkCD:0,        // attack cooldown
+  frame:0, fTimer:0,
+  facing:1, state:'idle',
+  hitbox(){ return {x:this.x+(this.facing===1?this.w:-12),y:this.y+8,w:24,h:28}; }
+};
+
+// ── WORLD GENERATOR ───────────────────────────────────────────────────────────
+let platforms=[], enemies=[], coins=[], obstacles=[];
+let genX=800; // next x to generate (world coords)
+const SEG=220;  // segment width between generation calls
+
+function difficulty(){ return Math.min(1, worldX/12000); }
+
+function genSegment(){
+  const d=difficulty();
+  const gx=genX;
+
+  // Platforms — random gaps & heights
+  const chance=0.55+d*0.2;
+  if(Math.random()<chance){
+    const pw=64+Math.floor(Math.random()*80);
+    const ph=GY - 60 - Math.floor(Math.random()*(60+d*60));
+    const py=Math.max(GY-160, ph);
+    platforms.push({x:gx+20, y:py, w:pw, h:16});
+
+    // coin on platform
+    if(Math.random()<0.6){
+      const cnt=1+Math.floor(Math.random()*3);
+      for(let i=0;i<cnt;i++)
+        coins.push({x:gx+30+i*16, y:py-16, frame:Math.random()*60, alive:true});
+    }
+    // enemy on platform (max 1 per platform)
+    if(Math.random()<0.25+d*0.2){
+      const type=d<0.3?'slime':d<0.6?['slime','skeleton'][Math.floor(Math.random()*2)]:['slime','skeleton','bat'][Math.floor(Math.random()*3)];
+      enemies.push(makeEnemy(gx+30, py-36, type));
+    }
+  }
+
+  // Ground coins
+  if(Math.random()<0.4){
+    for(let i=0;i<2+Math.floor(Math.random()*3);i++)
+      coins.push({x:gx+40+i*20, y:GY-16, frame:Math.random()*60, alive:true});
+  }
+
+  // Ground enemies — max 1 per segment
+  if(Math.random()<0.35+d*0.25){
+    const type=d<0.25?'slime':d<0.55?['slime','skeleton'][Math.floor(Math.random()*2)]:'skeleton';
+    enemies.push(makeEnemy(gx+80, GY-36, type));
+  }
+  if(d>0.5 && Math.random()<0.2){
+    enemies.push(makeEnemy(gx+160, GY-120,'bat'));
+  }
+
+  // Obstacles (spikes)
+  if(d>0.2 && Math.random()<0.15+d*0.2){
+    obstacles.push({x:gx+100, y:GY-12, w:16, h:12, type:'spike'});
+  }
+
+  genX+=SEG;
+}
+
+function makeEnemy(x,y,type){
+  const hpMap={slime:1,skeleton:3,bat:2};
+  return {
+    x, y, w:28, h:type==='bat'?18:36,
+    vx:0.8+difficulty()*1.2,
+    vy:0, hp:hpMap[type], maxHp:hpMap[type],
+    type, frame:Math.random()*100,
+    hit:0, facing:1, alive:true,
+    activated:false,   // stays frozen until player is close enough to see
+    patrolBase:x, patrolRange:60,
+    patrolDir:1,
+  };
+}
+
+// ── SPAWN ─────────────────────────────────────────────────────────────────────
+function initWorld(){
+  platforms=[]; enemies=[]; coins=[]; obstacles=[];
+  genX = 900; // start well past right edge of screen so nothing spawns on top of player
+  for(let i=0;i<6;i++) genSegment();
+}
+
+// ── DRAW helpers ─────────────────────────────────────────────────────────────
+function wx(x){ return x - worldX; }  // world → screen
+
+// Draw pixel player
+function drawPlayer(){
+  const {x:bx,y:by,facing,atk,inv,frame}=P;
+  const sx=wx(bx);
+  if(inv>0 && Math.floor(inv/3)%2===0) return;
+  ctx.save();
+  if(facing===-1){ ctx.translate(sx+14,0); ctx.scale(-1,1); ctx.translate(-14,0); }
+  const X=sx,Y=by;
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,.28)';
+  ctx.beginPath(); ctx.ellipse(X+14,Y+44,10,4,0,0,Math.PI*2); ctx.fill();
+  // boots
+  ctx.fillStyle=C.bootD; ctx.fillRect(X+5,Y+36,8,8); ctx.fillRect(X+17,Y+36,8,8);
+  ctx.fillStyle=C.boot;  ctx.fillRect(X+4,Y+34,9,6); ctx.fillRect(X+17,Y+34,9,6);
+  // pants
+  ctx.fillStyle=C.pantsD; ctx.fillRect(X+6,Y+28,7,8); ctx.fillRect(X+17,Y+28,7,8);
+  ctx.fillStyle=C.pants;  ctx.fillRect(X+7,Y+26,7,6); ctx.fillRect(X+16,Y+26,7,6);
+  // coat body
+  ctx.fillStyle=C.coatD; ctx.fillRect(X+6,Y+14,16,16);
+  ctx.fillStyle=C.coat;  ctx.fillRect(X+7,Y+13,14,15);
+  // cream sleeves
+  ctx.fillStyle=C.creamD; ctx.fillRect(X+1,Y+16,6,10); ctx.fillRect(X+21,Y+16,6,10);
+  ctx.fillStyle=C.cream;  ctx.fillRect(X+2,Y+15,5,10); ctx.fillRect(X+21,Y+15,5,10);
+  // belt
+  ctx.fillStyle=C.belt; ctx.fillRect(X+7,Y+24,14,3);
+  ctx.fillStyle='#999';  ctx.fillRect(X+13,Y+24,4,3);
+  // strap
+  ctx.fillStyle=C.belt; ctx.fillRect(X+8,Y+13,2,12);
+  // head
+  ctx.fillStyle=C.skinD; ctx.fillRect(X+7,Y+4,14,12);
+  ctx.fillStyle=C.skin;  ctx.fillRect(X+8,Y+3,12,11);
+  // hair back
+  ctx.fillStyle=C.hairD; ctx.fillRect(X+5,Y+2,18,10); ctx.fillRect(X+18,Y+10,6,8);
+  // hair
+  ctx.fillStyle=C.hair; ctx.fillRect(X+6,Y+1,16,9); ctx.fillRect(X+19,Y+8,5,7); ctx.fillRect(X+5,Y+5,3,6);
+  // eyes
+  ctx.fillStyle='#fff'; ctx.fillRect(X+9,Y+7,4,3); ctx.fillRect(X+15,Y+7,4,3);
+  ctx.fillStyle=C.eye;  ctx.fillRect(X+10,Y+8,2,2); ctx.fillRect(X+16,Y+8,2,2);
+  ctx.fillStyle='#000'; ctx.fillRect(X+11,Y+8,1,1); ctx.fillRect(X+17,Y+8,1,1);
+  // blush
+  ctx.fillStyle='rgba(230,100,100,.38)'; ctx.fillRect(X+8,Y+10,3,2); ctx.fillRect(X+17,Y+10,3,2);
+  // attack slash
+  if(atk>0){
+    ctx.save();
+    ctx.globalAlpha=atk/22;
+    const ax=facing===1?X+30:X-12;
+    ctx.strokeStyle='#fff'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(ax,Y+6); ctx.lineTo(ax+(facing===1?20:-20),Y+26); ctx.stroke();
+    ctx.strokeStyle='#ffdd44'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(ax+2,Y+9); ctx.lineTo(ax+(facing===1?18:-18),Y+25); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawEnemy(e){
+  if(!e.alive) return;
+  const sx=wx(e.x), sy=e.y;
+  const fl=e.hit>0?e.hit/8:0;
+  ctx.save();
+  if(e.facing===-1){ ctx.translate(sx+e.w/2,0); ctx.scale(-1,1); ctx.translate(-(sx+e.w/2),0); }
+
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,.22)';
+  ctx.beginPath(); ctx.ellipse(sx+e.w/2,sy+e.h,7,3,0,0,Math.PI*2); ctx.fill();
+
+  if(e.type==='slime'){
+    const bob=Math.sin(e.frame*.15)*2;
+    const sqx=Math.abs(Math.cos(e.frame*.15))*.12;
+    ctx.save();
+    ctx.translate(sx+14,sy+22);ctx.scale(1+sqx,1-sqx);ctx.translate(-(sx+14),-(sy+22));
+    const g=fl>0?`rgba(255,${~~(200*(1-fl))},${~~(200*(1-fl))},1)`:'#2aaa2a';
+    ctx.fillStyle=g;
+    ctx.fillRect(sx+2,sy+8+bob,20,16); ctx.fillRect(sx,sy+12+bob,24,10);
+    ctx.fillStyle='#fff'; ctx.fillRect(sx+4,sy+11+bob,6,5); ctx.fillRect(sx+14,sy+11+bob,6,5);
+    ctx.fillStyle='#000'; ctx.fillRect(sx+5,sy+12+bob,4,3); ctx.fillRect(sx+15,sy+12+bob,4,3);
+    // teeth
+    ctx.fillStyle='#fff';
+    ctx.fillRect(sx+7,sy+19+bob,3,3); ctx.fillRect(sx+14,sy+19+bob,3,3);
+    ctx.restore();
+  } else if(e.type==='skeleton'){
+    const c=fl>0?`rgba(255,${~~(200*(1-fl))},${~~(200*(1-fl))},1)`:'#d4c8a0';
+    ctx.fillStyle='#8a7a60'; ctx.fillRect(sx+7,sy+12,10,14);
+    ctx.fillStyle=c; ctx.fillRect(sx+8,sy+11,9,13);
+    ctx.fillStyle='#8a7a60';
+    for(let i=0;i<3;i++) ctx.fillRect(sx+8,sy+13+i*3,9,1);
+    ctx.fillStyle=c;
+    ctx.fillRect(sx+2,sy+12,5,2); ctx.fillRect(sx+17,sy+12,5,2);
+    ctx.fillRect(sx+2,sy+14,2,8); ctx.fillRect(sx+20,sy+14,2,8);
+    ctx.fillRect(sx+8,sy+26,3,10); ctx.fillRect(sx+13,sy+26,3,10);
+    ctx.fillStyle='#8a7a60'; ctx.fillRect(sx+5,sy+2,14,12);
+    ctx.fillStyle=c; ctx.fillRect(sx+6,sy+1,12,11);
+    ctx.fillStyle='#111'; ctx.fillRect(sx+7,sy+3,4,4); ctx.fillRect(sx+13,sy+3,4,4);
+    ctx.fillStyle='#ff4400'; ctx.fillRect(sx+8,sy+4,2,2); ctx.fillRect(sx+14,sy+4,2,2);
+    ctx.fillStyle='#8a7a60'; ctx.fillRect(sx+7,sy+10,10,3);
+    ctx.fillStyle='#111';
+    for(let i=0;i<3;i++) ctx.fillRect(sx+8+i*3,sy+11,2,2);
+  } else if(e.type==='bat'){
+    const wg=Math.sin(e.frame*.28)*6;
+    const c=fl>0?'#ff88cc':'#9933dd';
+    ctx.fillStyle=c;
+    ctx.fillRect(sx-8,sy+4+wg,14,4); ctx.fillRect(sx+18,sy+4+wg,14,4);
+    ctx.fillRect(sx-4,sy+2+wg,8,3);  ctx.fillRect(sx+20,sy+2+wg,8,3);
+    ctx.fillStyle='#440088'; ctx.fillRect(sx+6,sy+4,12,10);
+    ctx.fillStyle=c;       ctx.fillRect(sx+8,sy+3,10,9);
+    ctx.fillStyle='#ff1155'; ctx.fillRect(sx+9,sy+4,3,3); ctx.fillRect(sx+14,sy+4,3,3);
+  }
+  ctx.restore();
+}
+
+function drawPlatform(p){
+  const sx=wx(p.x);
+  ctx.fillStyle='#5a3520'; ctx.fillRect(sx,p.y,p.w,8);
+  ctx.fillStyle='#7a4530'; ctx.fillRect(sx,p.y,p.w,4);
+  ctx.fillStyle='#3a2010'; ctx.fillRect(sx,p.y+8,p.w,p.h-8);
+  ctx.fillStyle='#2a6a20';
+  for(let i=0;i<p.w;i+=14) ctx.fillRect(sx+i,p.y,8,2);
+}
+
+function drawObstacle(o){
+  if(o.type==='spike'){
+    const sx=wx(o.x);
+    ctx.fillStyle='#888';
+    ctx.beginPath();
+    ctx.moveTo(sx,o.y+o.h); ctx.lineTo(sx+o.w/2,o.y); ctx.lineTo(sx+o.w,o.y+o.h);
+    ctx.fill();
+    ctx.fillStyle='#aaa';
+    ctx.beginPath();
+    ctx.moveTo(sx+2,o.y+o.h); ctx.lineTo(sx+o.w/2-1,o.y+3); ctx.lineTo(sx+o.w/2+1,o.y+3); ctx.lineTo(sx+o.w-2,o.y+o.h);
+    ctx.fill();
+  }
+}
+
+function drawCoin(c){
+  if(!c.alive) return;
+  const sx=wx(c.x);
+  const spin=Math.abs(Math.cos(c.frame*.1));
+  ctx.fillStyle='#ffcc00'; ctx.fillRect(sx+6-spin*5,c.y,spin*10,14);
+  ctx.fillStyle='#ffee88'; ctx.fillRect(sx+7-spin*4,c.y+1,spin*8,3);
+}
+
+// ── BACKGROUND ────────────────────────────────────────────────────────────────
+function drawBG(){
+  // sky
+  const g=ctx.createLinearGradient(0,0,0,GY);
+  g.addColorStop(0,'#050010'); g.addColorStop(.6,'#150825'); g.addColorStop(1,'#220d35');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,GY);
+
+  // moon parallax
+  const mx=((600 - worldX*0.015) % W + W) % W;
+  ctx.fillStyle='#fffce0'; ctx.beginPath(); ctx.arc(mx,55,28,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#d0c090'; ctx.beginPath(); ctx.arc(mx-3,50,5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx+10,63,4,0,Math.PI*2); ctx.fill();
+
+  // stars parallax layers
+  bgStars.forEach(s=>{
+    const sx=((s.x-worldX*s.d)%W+W*2)%W;
+    ctx.fillStyle=`rgba(255,255,240,${s.b})`;
+    ctx.fillRect(sx,s.y,s.sz,s.sz);
+  });
+
+  // distant mountains
+  ctx.fillStyle='#110820';
+  for(let i=0;i<7;i++){
+    const mx2=((i*200-worldX*.08)%(W+220)+W+220)%W+220-110;
+    ctx.beginPath();
+    ctx.moveTo(mx2-80,GY); ctx.lineTo(mx2,GY-120-i*8); ctx.lineTo(mx2+90,GY);
+    ctx.fill();
+  }
+  // mid ruins
+  ctx.fillStyle='#1e0e2e';
+  for(let i=0;i<5;i++){
+    const rx=((i*280-worldX*.25)%(W+320)+W+320)%W+320-120;
+    ctx.fillRect(rx,GY-90,18,90); ctx.fillRect(rx+28,GY-65,14,65); ctx.fillRect(rx-12,GY-55,14,55);
+  }
+
+  // ground
+  const gg=ctx.createLinearGradient(0,GY,0,H);
+  gg.addColorStop(0,'#3a2010'); gg.addColorStop(.3,'#2a1808'); gg.addColorStop(1,'#1a1008');
+  ctx.fillStyle=gg; ctx.fillRect(0,GY,W,H-GY);
+  // tiles
+  const off=worldX%32;
+  ctx.fillStyle='#4a2a14';
+  for(let i=-32;i<W+32;i+=32) ctx.fillRect(i-off,GY,30,4);
+  ctx.fillStyle='#5a3820';
+  for(let i=-32;i<W+32;i+=32) ctx.fillRect(i-off,GY,30,2);
+  // grass
+  ctx.fillStyle='#2a6a20';
+  for(let i=-8;i<W+8;i+=8) ctx.fillRect(i-(worldX%8),GY-2,6,2);
+}
+
+function initStars(){
+  bgStars=[];
+  for(let i=0;i<100;i++) bgStars.push({
+    x:Math.random()*W*4, y:Math.random()*(GY-20),
+    sz:Math.random()<.2?2:1, b:.3+Math.random()*.7, d:.03+Math.random()*.12
+  });
+}
+
+// ── COLLISION ──────────────────────────────────────────────────────────────────
+function overlap(a,b){
+  return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
+}
+
+// ── PARTICLES ─────────────────────────────────────────────────────────────────
+function burst(worldX_pos,y,col,n,pow=1){
+  for(let i=0;i<n;i++) particles.push({
+    wx:worldX_pos,   // world-x, converted to screen on draw
+    y,vx:(Math.random()-.5)*5*pow,vy:(Math.random()-1.5)*4*pow,
+    life:20+Math.random()*20,max:40,col,sz:2+Math.random()*3
+  });
+}
+// float also takes world-x for consistency
+function float(worldX_pos,y,txt,col){
+  floats.push({wx:worldX_pos, y, txt, col, life:45, max:45, vy:-1.4});
+}
+
+function updateHUD(){
+  const dist=Math.floor(worldX/10);
+  document.getElementById('dist').textContent=dist;
+  document.getElementById('sc').textContent=score;
+  document.getElementById('best').textContent=best;
+  const pct=(P.hp/P.maxHp)*100;
+  document.getElementById('hp-fill').style.width=pct+'%';
+  const col=pct>50?'#cc2040':pct>25?'#ff8800':'#ff0000';
+  document.getElementById('hp-fill').style.background=`linear-gradient(90deg,${col},#ff5577)`;
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────────────────
+let raf=null;
+function gameLoop(){
+  if(!running) return;
+  raf=requestAnimationFrame(gameLoop);
+  update();
+  draw();
+}
+
+function update(){
+  // ── input ────────────────────────────────────────────────────────────────
+  const left  = keys['ArrowLeft'] ||keys['a']||mkeys.left;
+  const right = keys['ArrowRight']||keys['d']||mkeys.right;
+  const jump  = keys['ArrowUp']   ||keys['z']||keys['w']||mkeys.jump;
+  const atk   = keys['x']         ||keys['j']||mkeys.atk;
+  const run   = keys['Shift'];
+
+  const spd = run ? 5.5 : 3.5;
+  if(left)  { P.vx=-spd; P.facing=-1; }
+  else if(right){ P.vx=spd; P.facing=1; }
+  else P.vx*=0.7;
+
+  if(jump && !keys._jc){
+    if(P.jumps<P.maxJumps){
+      P.vy=JUMP*(P.jumps===1?.82:1);
+      P.jumps++;
+      keys._jc=true;
+      burst(P.x+14,P.y+P.h,'#aaaaff',5);
+    }
+  }
+  if(!jump) keys._jc=false;
+
+  if(atk && P.atkCD<=0){
+    P.atk=22; P.atkCD=26;
+    P.atkId=(P.atkId||0)+1; // new swing ID — each enemy tracks which swing hit them
+    keys.x=false; keys.j=false; mkeys.atk=false;
+  }
+
+  // ── physics ──────────────────────────────────────────────────────────────
+  P.vy+=GRAV;
+  P.x+=P.vx;
+  P.y+=P.vy;
+
+  // ground
+  if(P.y+P.h>=GY){ P.y=GY-P.h; P.vy=0; P.onGround=true; P.jumps=0; }
+  else P.onGround=false;
+  // ceiling
+  if(P.y<0){ P.y=0; P.vy=0; }
+
+  // platforms
+  platforms.forEach(p=>{
+    const pr={x:P.x,y:P.y,w:P.w,h:P.h};
+    if(overlap(pr,p) && P.vy>=0 && P.y+P.h-P.vy<=p.y+4){
+      P.y=p.y-P.h; P.vy=0; P.onGround=true; P.jumps=0;
+    }
+  });
+
+  // clamp player to left edge of visible world (always)
+  if(P.x < worldX){ P.x = worldX; P.vx=0; }
+
+  // state
+  if(!P.onGround) P.state=P.vy<0?'jump':'fall';
+  else if(Math.abs(P.vx)>.5) P.state='run';
+  else P.state='idle';
+
+  if(P.atk>0) P.atk--;
+  if(P.atkCD>0) P.atkCD--;
+  if(P.inv>0) P.inv--;
+
+  P.fTimer++; if(P.fTimer>6){P.frame++;P.fTimer=0;}
+
+  // ── scroll world (camera follows player right) ────────────────────────────
+  const targetWX = P.x - 160;
+  if(targetWX > worldX) worldX = targetWX;
+
+  // ── generate more world ───────────────────────────────────────────────────
+  // limit to 2 segments per frame to prevent spawn burst
+  let genCount=0;
+  while(genX < worldX + W + 400 && genCount<2){ genSegment(); genCount++; }
+
+  // ── cull off-screen objects ───────────────────────────────────────────────
+  const cullL = worldX - 300;           // 300px behind camera
+  const cullR = worldX + W + 600;       // 600px ahead of camera right edge
+  platforms  = platforms.filter(p=>p.x+p.w>cullL && p.x<cullR);
+  enemies    = enemies.filter(e=>e.x+e.w>cullL && e.x<cullR && e.alive);
+  coins      = coins.filter(c=>c.x>cullL && c.x<cullR && c.alive);
+  obstacles  = obstacles.filter(o=>o.x+o.w>cullL && o.x<cullR);
+
+  // ── enemies AI & update ───────────────────────────────────────────────────
+  let playerHitThisFrame = false;
+  enemies.forEach(e=>{
+    if(!e.alive) return;
+    e.frame++;
+    if(e.hit>0) e.hit--;
+
+    const screenX = e.x - worldX;
+    const dx = (P.x+14) - (e.x+e.w/2);
+    const distToPlayer = Math.abs(dx);
+
+    // Only activate when enemy enters from the RIGHT side of screen (player sees them coming)
+    // screenX must be > 60 so they're visibly ahead, not already behind or on player
+    if(!e.activated && screenX >= 60 && screenX < W + 80){
+      e.activated = true;
+    }
+
+    // Frozen until activated — still apply gravity so they land on platforms
+    if(!e.activated){
+      if(e.type !== 'bat'){
+        e.vy += GRAV * 0.8;
+        e.y  += e.vy;
+        if(e.y + e.h >= GY){ e.y = GY - e.h; e.vy = 0; }
+        platforms.forEach(p=>{
+          const er={x:e.x,y:e.y,w:e.w,h:e.h};
+          if(overlap(er,p)&&e.vy>=0&&e.y+e.h-e.vy<=p.y+4){ e.y=p.y-e.h; e.vy=0; }
+        });
+      }
+      return;
+    }
+
+    e.facing = dx > 0 ? 1 : -1;
+
+    // Once player passes enemy (enemy is to the left of player and getting further), stop chasing
+    // Clamp enemy so it cannot go more than 80px behind its spawn base
+    const maxLeftDrift = e.patrolBase - 80;
+
+    if(e.type==='bat'){
+      const dy=(P.y+22)-(e.y+e.h/2);
+      e.x += e.vx*(dx>0?1:-1)*.9;
+      e.y += Math.sign(dy)*1.4;
+      e.y  = Math.max(GY-190, Math.min(GY-45, e.y));
+    } else {
+      if(distToPlayer < 340){
+        // chase player
+        e.x += e.vx * (dx>0?1:-1);
+      } else {
+        // patrol near spawn
+        e.x += e.vx * e.patrolDir * 0.4;
+        if(Math.abs(e.x - e.patrolBase) > e.patrolRange) e.patrolDir *= -1;
+      }
+      // never drift further left than 80px from spawn — prevents running past player
+      if(e.x < maxLeftDrift) e.x = maxLeftDrift;
+      e.vy += GRAV * 0.8;
+      e.y  += e.vy;
+      if(e.y + e.h >= GY){ e.y = GY - e.h; e.vy = 0; }
+      platforms.forEach(p=>{
+        const er={x:e.x,y:e.y,w:e.w,h:e.h};
+        if(overlap(er,p) && e.vy>=0 && e.y+e.h-e.vy <= p.y+4){
+          e.y = p.y - e.h; e.vy = 0;
+        }
+      });
+    }
+
+    // hit player — only once per frame total
+    if(!playerHitThisFrame){
+      const pr={x:P.x+4,y:P.y,w:P.w-8,h:P.h};
+      const er={x:e.x,y:e.y,w:e.w,h:e.h};
+      if(overlap(pr,er)&&P.inv<=0){
+        playerHitThisFrame=true;
+        P.hp--; P.inv=70;
+        P.vy=-9; P.vx=e.facing===1?5:-5;
+        shakeT=10; burst(P.x+14,P.y+20,'#ff4455',8,1.5);
+        updateHUD();
+      }
+    }
+
+    // player attack — one hit per swing (track by atkId)
+    if(P.atk>0 && e.lastHitAtkId !== P.atkId){
+      const hb=P.hitbox();
+      const er2={x:e.x,y:e.y,w:e.w,h:e.h};
+      if(overlap(hb,er2)){
+        e.lastHitAtkId=P.atkId;
+        e.hp--; e.hit=8;
+        burst(e.x+e.w/2, e.y+e.h/2,'#ffcc44',6);
+        if(e.hp<=0){
+          e.alive=false;
+          const pts=e.type==='skeleton'?30:e.type==='bat'?20:10;
+          score+=pts;
+          burst(e.x+e.w/2, e.y+e.h/2, e.type==='slime'?'#44ff44':'#ffddaa',12,1.5);
+          float(e.x+e.w/2, e.y-10, '+'+pts,'#ffcc44');
+          updateHUD();
+        }
+      }
+    }
+  });
+
+  if(P.hp<=0 && running){ gameOver(); return; }
+
+  // ── coins ─────────────────────────────────────────────────────────────────
+  coins.forEach(c=>{
+    c.frame++;
+    const cr={x:c.x-5,y:c.y-5,w:20,h:20};
+    const pr={x:P.x,y:P.y,w:P.w,h:P.h};
+    if(!c.alive) return;
+    if(overlap(cr,pr)){
+      c.alive=false; score+=5;
+      burst(c.x, c.y,'#ffcc00',5);
+      float(c.x, c.y-10,'+5','#ffcc00');
+      updateHUD();
+    }
+  });
+
+  // ── obstacles ─────────────────────────────────────────────────────────────
+  obstacles.forEach(o=>{
+    const pr={x:P.x+4,y:P.y,w:P.w-8,h:P.h};
+    if(overlap(pr,o)&&P.inv<=0){
+      P.hp--; P.inv=60;
+      P.vy=-9; shakeT=8;
+      burst(P.x+14, P.y+40,'#ff4444',8);
+      updateHUD();
+    }
+  });
+  if(P.hp<=0 && running){ gameOver(); return; }
+
+  // ── particles ─────────────────────────────────────────────────────────────
+  particles.forEach(p=>{p.wx+=p.vx;p.y+=p.vy;p.vy+=.18;p.life--;});
+  particles=particles.filter(p=>p.life>0);
+  floats.forEach(f=>{f.y+=f.vy;f.life--;});
+  floats=floats.filter(f=>f.life>0);
+
+  // ── score from distance ────────────────────────────────────────────────────
+  if(Math.floor(worldX/100) > Math.floor(prevWorldX/100)){
+    score += Math.floor(worldX/100) - Math.floor(prevWorldX/100);
+  }
+  prevWorldX = worldX;
+  best=Math.max(best,score);
+  if(shakeT>0) shakeT--;
+  updateHUD(); // always sync HUD every frame
+}
+
+function draw(){
+  ctx.save();
+  if(shakeT>0){ ctx.translate((Math.random()-.5)*shakeT,(Math.random()-.5)*shakeT); }
+
+  drawBG();
+  platforms.forEach(p=>drawPlatform(p));
+  obstacles.forEach(o=>drawObstacle(o));
+  coins.forEach(c=>drawCoin(c));
+  enemies.forEach(e=>drawEnemy(e));
+  drawPlayer();
+
+  // particles (convert world-x → screen-x each frame)
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/p.max;
+    ctx.fillStyle=p.col;
+    ctx.fillRect(p.wx-worldX, p.y, p.sz, p.sz);
+  });
+  ctx.globalAlpha=1;
+
+  // floats
+  ctx.font='8px "Press Start 2P"';
+  floats.forEach(f=>{
+    ctx.globalAlpha=f.life/f.max;
+    ctx.fillStyle=f.col; ctx.fillText(f.txt, f.wx-worldX, f.y);
+  });
+  ctx.globalAlpha=1;
+
+  // distance marker (every 100m)
+  const dist=Math.floor(worldX/10);
+  const milestone=dist>0&&dist%100<3;
+  if(milestone){
+    ctx.fillStyle='rgba(255,204,68,.18)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#ffcc44';
+    ctx.font='12px "Press Start 2P"';
+    ctx.textAlign='center';
+    ctx.fillText(`${dist}m!`,W/2,H/2);
+    ctx.textAlign='left';
+  }
+
+  ctx.restore();
+}
+
+// ── GAME OVER ─────────────────────────────────────────────────────────────────
+function gameOver(){
+  running=false;
+  const dist=Math.floor(worldX/10);
+  const isBest=score>best;
+  if(isBest){ best=score; saveBest(); }
+  document.getElementById('go-dist').textContent=dist;
+  document.getElementById('go-sc').textContent=score;
+  document.getElementById('go-best-line').textContent=isBest?'🏆 NEW WORLD BEST!':'WORLD BEST: '+best;
+  document.getElementById('best').textContent=best;
+  document.getElementById('scr-over').style.display='flex';
+  // refresh title world best after save
+  setTimeout(loadBest, 500);
+}
+
+function startGame(){
+  document.getElementById('scr-title').style.display='none';
+  document.getElementById('scr-over').style.display='none';
+  // reset
+  score=0; worldX=0; prevWorldX=0;
+  keys={}; mkeys.left=false; mkeys.right=false; mkeys.jump=false; mkeys.atk=false;
+  Object.assign(P,{x:140,y:GY,vx:0,vy:0,onGround:false,jumps:0,
+    hp:5,maxHp:5,inv:0,atk:0,atkCD:0,atkId:0,frame:0,fTimer:0,facing:1,state:'idle'});
+  particles=[]; floats=[]; initStars(); initWorld();
+  running=true;
+  updateHUD();
+  if(raf) cancelAnimationFrame(raf);
+  gameLoop();
+}
+
+// ── KEYS ──────────────────────────────────────────────────────────────────────
+window.addEventListener('keydown',e=>{
+  keys[e.key]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+window.addEventListener('keyup',e=>keys[e.key]=false);
+
+// ── MOBILE ────────────────────────────────────────────────────────────────────
+// mkeys already declared above as let mkeys={}
+mkeys.left=false; mkeys.right=false; mkeys.jump=false; mkeys.atk=false;
+function mb(id,k){
+  const el=document.getElementById(id);
+  ['touchstart','mousedown'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();mkeys[k]=true;}));
+  ['touchend','mouseup','touchcancel'].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();mkeys[k]=false;}));
+}
+mb('mb-left','left'); mb('mb-right','right'); mb('mb-jump','jump'); mb('mb-atk','atk');
+
+// Show mobile if touch device
+if('ontouchstart' in window){
+  document.getElementById('mobile-btns').style.display='flex';
+  document.getElementById('ctrl-bar').style.display='none';
+}
+
+initStars();
+loadBest(); // load saved best score from storage
+</script>
+</body>
+</html>
