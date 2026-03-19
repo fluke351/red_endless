@@ -116,6 +116,8 @@
       />
     </div>
     <div id="title-world-best" style="color:#ffcc44;font-size:8px;text-align:center;line-height:2"></div>
+    <div id="leaderboard" style="text-align:center;max-height:140px;overflow-y:auto;width:90%;max-width:400px"></div>
+    <div id="my-stats" style="color:#aaa;font-size:7px;text-align:center;line-height:2"></div>
     <button class="btn" onclick="startGame()">▶ เริ่มผจญภัย</button>
   </div>
 
@@ -128,6 +130,7 @@
       คะแนน: <span id="go-sc">0</span><br>
       <span id="go-best-line" style="color:#aaffaa"></span>
     </div>
+    <div id="go-player-stats" style="color:#aaa;font-size:7px;line-height:2.2;text-align:center"></div>
     <button class="btn" onclick="startGame()">▶ เล่นอีกครั้ง</button>
   </div>
 </div>
@@ -137,7 +140,7 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const W=800, H=450, GY=H-60;
-const GRAV=0.55, JUMP=-13.5;
+const GRAV=0.45, JUMP=-14.5;
 
 // ── PALETTE ───────────────────────────────────────────────────────────────────
 const C={
@@ -153,26 +156,82 @@ const C={
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let running=false, score=0, best=0;
 let worldX=0, prevWorldX=0;
+let lastHpRegenDist=0; // track HP regen milestones
 
-// ── PERSISTENT BEST SCORE (shared across all players) ───────────────────────
-async function loadBest(){
-  try{
-    const r=await window.storage.get('red_endless_best', true);
-    if(r){
-      const data=JSON.parse(r.value);
-      best=data.score||0;
-      const holder=data.name||'???';
-      document.getElementById('title-world-best').innerHTML=
-        `🏆 WORLD BEST<br>${holder}: ${best}`;
-      updateHUD();
-    }
-  }catch(e){}
+// ── BIOME SYSTEM ─────────────────────────────────────────────────────────────
+const BIOMES=[
+  {name:'🌙 Dark Forest',  minDist:0,    sky1:'#050010',sky2:'#150825',sky3:'#220d35', ground1:'#3a2010',ground2:'#2a1808',ground3:'#1a1008', tile:'#4a2a14',tileH:'#5a3820',grass:'#2a6a20',moonCol:'#fffce0',mtnCol:'#110820',ruinCol:'#1e0e2e'},
+  {name:'🌋 Volcanic',     minDist:500,  sky1:'#1a0800',sky2:'#2a0a00',sky3:'#3a1500', ground1:'#2a1a1a',ground2:'#1a0808',ground3:'#0a0000', tile:'#3a1a0a',tileH:'#5a2a1a',grass:'#4a2200',moonCol:'#ff6622',mtnCol:'#1a0500',ruinCol:'#2e0e0e'},
+  {name:'❄️ Ice World',    minDist:1200, sky1:'#0a1828',sky2:'#1a3050',sky3:'#2a4870', ground1:'#c0d8e8',ground2:'#a0b8d0',ground3:'#80a0c0', tile:'#90b0d0',tileH:'#b0d0e8',grass:'#e0f0ff',moonCol:'#e8f0ff',mtnCol:'#1a2838',ruinCol:'#2a3848'},
+  {name:'🌌 Space',        minDist:2000, sky1:'#000005',sky2:'#050010',sky3:'#0a0020', ground1:'#2a2a3a',ground2:'#1a1a2a',ground3:'#0a0a1a', tile:'#3a3a4a',tileH:'#4a4a5a',grass:'#5a5a7a',moonCol:'#aabbff',mtnCol:'#0a0a18',ruinCol:'#15152a'}
+];
+let currentBiomeIdx=0, biomeTransition=0, biomeAnnounce=0;
+function getCurrentBiome(){
+  const dist=Math.floor(worldX/10);
+  for(let i=BIOMES.length-1;i>=0;i--) if(dist>=BIOMES[i].minDist) return i;
+  return 0;
 }
-async function saveBest(){
-  const name=(document.getElementById('name-input').value.trim().toUpperCase()||'ANON').slice(0,12);
+
+// ── PLAYER DATA (IP-based) ──────────────────────────────────────────────────
+let playerIP='unknown';
+let allPlayers={};
+const STORAGE_KEY='red_endless_players';
+
+async function fetchPlayerIP(){
   try{
-    await window.storage.set('red_endless_best', JSON.stringify({score:best,name}), true);
-  }catch(e){}
+    const r=await fetch('https://api.ipify.org?format=json');
+    const d=await r.json(); playerIP=d.ip||'unknown';
+  }catch(e){ playerIP='local_'+Date.now(); }
+  loadAllPlayers();
+}
+
+function loadAllPlayers(){
+  try{ allPlayers=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch(e){ allPlayers={}; }
+  renderLeaderboard();
+}
+
+function savePlayerData(){
+  const name=(document.getElementById('name-input').value.trim().toUpperCase()||'ANON').slice(0,12);
+  const dist=Math.floor(worldX/10);
+  const prev=allPlayers[playerIP]||{name,bestScore:0,bestDistance:0,gamesPlayed:0,totalDistance:0};
+  allPlayers[playerIP]={
+    name:name||prev.name,
+    bestScore:Math.max(prev.bestScore,score),
+    bestDistance:Math.max(prev.bestDistance,dist),
+    gamesPlayed:(prev.gamesPlayed||0)+1,
+    totalDistance:(prev.totalDistance||0)+dist,
+    lastPlayed:new Date().toISOString()
+  };
+  best=allPlayers[playerIP].bestScore;
+  try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(allPlayers)); }catch(e){}
+}
+
+function renderLeaderboard(){
+  const list=Object.entries(allPlayers)
+    .map(([ip,d])=>({ip,...d}))
+    .sort((a,b)=>b.bestScore-a.bestScore)
+    .slice(0,10);
+  const el=document.getElementById('leaderboard');
+  if(!el) return;
+  if(list.length===0){ el.innerHTML='<div style="color:#666;font-size:7px">ยังไม่มีข้อมูลผู้เล่น</div>'; return; }
+  let html='<div style="color:#ffcc44;font-size:7px;margin-bottom:6px">🏆 LEADERBOARD (Top 10)</div>';
+  html+='<table style="border-collapse:collapse;font-size:6px;color:#ccc;width:100%;max-width:380px">';
+  html+='<tr style="color:#ff6688"><td>#</td><td>NAME</td><td>SCORE</td><td>DIST</td><td>PLAYS</td></tr>';
+  list.forEach((p,i)=>{
+    const me=p.ip===playerIP;
+    const bg=me?'rgba(255,51,102,.15)':'transparent';
+    const col=me?'#ff88aa':'#ccc';
+    html+=`<tr style="background:${bg};color:${col}"><td>${i+1}</td><td>${p.name||'???'}</td><td>${p.bestScore}</td><td>${p.bestDistance}m</td><td>${p.gamesPlayed}</td></tr>`;
+  });
+  html+='</table>';
+  el.innerHTML=html;
+  // Also update title world best
+  if(list.length>0){
+    const top=list[0];
+    best=Math.max(best,top.bestScore);
+    document.getElementById('title-world-best').innerHTML=`🏆 WORLD BEST<br>${top.name||'???'}: ${top.bestScore}`;
+    document.getElementById('best').textContent=best;
+  }
 }
 let keys={}, mkeys={};
 let shakeT=0;
@@ -183,8 +242,8 @@ let bgStars=[];
 const P={
   x:140, y:GY, w:28, h:44,
   vx:0, vy:0, onGround:false,
-  jumps:0, maxJumps:2,
-  hp:5, maxHp:5,
+  jumps:0, maxJumps:3,
+  hp:8, maxHp:8,
   inv:0,          // invincibility frames
   atk:0,          // attack animation frames
   atkCD:0,        // attack cooldown
@@ -241,7 +300,7 @@ function genSegment(){
   }
 
   // Obstacles (spikes)
-  if(d>0.2 && Math.random()<0.15+d*0.2){
+  if(d>0.3 && Math.random()<0.10+d*0.15){
     obstacles.push({x:gx+100, y:GY-12, w:16, h:12, type:'spike'});
   }
 
@@ -252,7 +311,7 @@ function makeEnemy(x,y,type){
   const hpMap={slime:1,skeleton:3,bat:2};
   return {
     x, y, w:28, h:type==='bat'?18:36,
-    vx:0.8+difficulty()*1.2,
+    vx:0.6+difficulty()*0.9,
     vy:0, hp:hpMap[type], maxHp:hpMap[type],
     type, frame:Math.random()*100,
     hit:0, facing:1, alive:true,
@@ -415,26 +474,47 @@ function drawCoin(c){
 
 // ── BACKGROUND ────────────────────────────────────────────────────────────────
 function drawBG(){
+  const b=BIOMES[currentBiomeIdx];
   // sky
   const g=ctx.createLinearGradient(0,0,0,GY);
-  g.addColorStop(0,'#050010'); g.addColorStop(.6,'#150825'); g.addColorStop(1,'#220d35');
+  g.addColorStop(0,b.sky1); g.addColorStop(.6,b.sky2); g.addColorStop(1,b.sky3);
   ctx.fillStyle=g; ctx.fillRect(0,0,W,GY);
 
-  // moon parallax
+  // moon/sun parallax
   const mx=((600 - worldX*0.015) % W + W) % W;
-  ctx.fillStyle='#fffce0'; ctx.beginPath(); ctx.arc(mx,55,28,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#d0c090'; ctx.beginPath(); ctx.arc(mx-3,50,5,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(mx+10,63,4,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=b.moonCol; ctx.beginPath(); ctx.arc(mx,55,28,0,Math.PI*2); ctx.fill();
+  if(currentBiomeIdx===1){
+    // volcanic glow
+    ctx.fillStyle='rgba(255,60,0,.15)'; ctx.fillRect(0,GY-80,W,80);
+  }
+  if(currentBiomeIdx!==1){
+    ctx.fillStyle='rgba(180,160,120,.4)'; ctx.beginPath(); ctx.arc(mx-3,50,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx+10,63,4,0,Math.PI*2); ctx.fill();
+  }
 
   // stars parallax layers
   bgStars.forEach(s=>{
     const sx=((s.x-worldX*s.d)%W+W*2)%W;
-    ctx.fillStyle=`rgba(255,255,240,${s.b})`;
+    const alpha=currentBiomeIdx===2?s.b*0.4:s.b;
+    ctx.fillStyle=`rgba(255,255,240,${alpha})`;
     ctx.fillRect(sx,s.y,s.sz,s.sz);
   });
 
+  // Space nebula
+  if(currentBiomeIdx===3){
+    ctx.globalAlpha=0.08;
+    const nebs=[{x:200,y:80,r:90,c:'#6622cc'},{x:550,y:120,r:70,c:'#cc2266'},{x:380,y:50,r:60,c:'#2244cc'}];
+    nebs.forEach(n=>{
+      const nx=((n.x-worldX*0.02)%W+W)%W;
+      const ng=ctx.createRadialGradient(nx,n.y,0,nx,n.y,n.r);
+      ng.addColorStop(0,n.c); ng.addColorStop(1,'transparent');
+      ctx.fillStyle=ng; ctx.fillRect(nx-n.r,n.y-n.r,n.r*2,n.r*2);
+    });
+    ctx.globalAlpha=1;
+  }
+
   // distant mountains
-  ctx.fillStyle='#110820';
+  ctx.fillStyle=b.mtnCol;
   for(let i=0;i<7;i++){
     const mx2=((i*200-worldX*.08)%(W+220)+W+220)%W+220-110;
     ctx.beginPath();
@@ -442,24 +522,43 @@ function drawBG(){
     ctx.fill();
   }
   // mid ruins
-  ctx.fillStyle='#1e0e2e';
+  ctx.fillStyle=b.ruinCol;
   for(let i=0;i<5;i++){
     const rx=((i*280-worldX*.25)%(W+320)+W+320)%W+320-120;
     ctx.fillRect(rx,GY-90,18,90); ctx.fillRect(rx+28,GY-65,14,65); ctx.fillRect(rx-12,GY-55,14,55);
   }
 
+  // Ice snow particles
+  if(currentBiomeIdx===2){
+    ctx.fillStyle='rgba(255,255,255,.6)';
+    for(let i=0;i<30;i++){
+      const sx2=((i*37+worldX*0.3+Math.sin(i*7+worldX*0.01)*20)%W+W)%W;
+      const sy2=((i*53+worldX*0.5)%(GY+20));
+      ctx.fillRect(sx2,sy2,2,2);
+    }
+  }
+  // Volcanic lava drips
+  if(currentBiomeIdx===1){
+    ctx.fillStyle='rgba(255,100,0,.4)';
+    for(let i=0;i<15;i++){
+      const sx2=((i*61+worldX*0.2)%W+W)%W;
+      const sy2=GY-4+Math.sin(i*3+worldX*0.02)*3;
+      ctx.fillRect(sx2,sy2,4,4);
+    }
+  }
+
   // ground
   const gg=ctx.createLinearGradient(0,GY,0,H);
-  gg.addColorStop(0,'#3a2010'); gg.addColorStop(.3,'#2a1808'); gg.addColorStop(1,'#1a1008');
+  gg.addColorStop(0,b.ground1); gg.addColorStop(.3,b.ground2); gg.addColorStop(1,b.ground3);
   ctx.fillStyle=gg; ctx.fillRect(0,GY,W,H-GY);
   // tiles
   const off=worldX%32;
-  ctx.fillStyle='#4a2a14';
+  ctx.fillStyle=b.tile;
   for(let i=-32;i<W+32;i+=32) ctx.fillRect(i-off,GY,30,4);
-  ctx.fillStyle='#5a3820';
+  ctx.fillStyle=b.tileH;
   for(let i=-32;i<W+32;i+=32) ctx.fillRect(i-off,GY,30,2);
   // grass
-  ctx.fillStyle='#2a6a20';
+  ctx.fillStyle=b.grass;
   for(let i=-8;i<W+8;i+=8) ctx.fillRect(i-(worldX%8),GY-2,6,2);
 }
 
@@ -680,7 +779,7 @@ function update(){
       const er={x:e.x,y:e.y,w:e.w,h:e.h};
       if(overlap(pr,er)&&P.inv<=0){
         playerHitThisFrame=true;
-        P.hp--; P.inv=70;
+        P.hp--; P.inv=90;
         P.vy=-9; P.vx=e.facing===1?5:-5;
         shakeT=10; burst(P.x+14,P.y+20,'#ff4455',8,1.5);
         updateHUD();
@@ -748,6 +847,28 @@ function update(){
   prevWorldX = worldX;
   best=Math.max(best,score);
   if(shakeT>0) shakeT--;
+
+  // ── biome change detection ──────────────────────────────────────────────────
+  const newBiome=getCurrentBiome();
+  if(newBiome!==currentBiomeIdx){
+    currentBiomeIdx=newBiome;
+    biomeAnnounce=120;
+    biomeTransition=30;
+  }
+  if(biomeAnnounce>0) biomeAnnounce--;
+  if(biomeTransition>0) biomeTransition--;
+
+  // ── HP regen every 500m ───────────────────────────────────────────────────
+  const curDist=Math.floor(worldX/10);
+  if(curDist-lastHpRegenDist>=500){
+    lastHpRegenDist=curDist;
+    if(P.hp<P.maxHp){
+      P.hp++;
+      float(P.x+14,P.y-10,'+1 HP','#44ff88');
+      burst(P.x+14,P.y+20,'#44ff88',8);
+    }
+  }
+
   updateHUD(); // always sync HUD every frame
 }
 
@@ -791,6 +912,22 @@ function draw(){
     ctx.textAlign='left';
   }
 
+  // biome transition flash
+  if(biomeTransition>0){
+    ctx.fillStyle=`rgba(255,255,255,${biomeTransition/60})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  // biome announcement
+  if(biomeAnnounce>0){
+    ctx.globalAlpha=Math.min(1,biomeAnnounce/30);
+    ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(0,H/2-30,W,60);
+    ctx.fillStyle='#ffcc44';
+    ctx.font='14px "Press Start 2P"'; ctx.textAlign='center';
+    ctx.fillText(BIOMES[currentBiomeIdx].name,W/2,H/2+5);
+    ctx.textAlign='left'; ctx.globalAlpha=1;
+  }
+
   ctx.restore();
 }
 
@@ -798,25 +935,37 @@ function draw(){
 function gameOver(){
   running=false;
   const dist=Math.floor(worldX/10);
-  const isBest=score>best;
-  if(isBest){ best=score; saveBest(); }
+  const prevBest=best;
+  savePlayerData();
+  const isBest=score>prevBest;
   document.getElementById('go-dist').textContent=dist;
   document.getElementById('go-sc').textContent=score;
   document.getElementById('go-best-line').textContent=isBest?'🏆 NEW WORLD BEST!':'WORLD BEST: '+best;
   document.getElementById('best').textContent=best;
+  // show player stats on game over
+  const pd=allPlayers[playerIP];
+  if(pd){
+    document.getElementById('go-player-stats').innerHTML=
+      `📊 สถิติของคุณ<br>Best Score: ${pd.bestScore} | Best Dist: ${pd.bestDistance}m<br>เล่นแล้ว ${pd.gamesPlayed} ครั้ง | รวมระยะ ${pd.totalDistance}m`;
+  }
   document.getElementById('scr-over').style.display='flex';
-  // refresh title world best after save
-  setTimeout(loadBest, 500);
+  renderLeaderboard();
+  // show my stats on title too
+  if(pd){
+    const ms=document.getElementById('my-stats');
+    if(ms) ms.innerHTML=`📊 ${pd.name}: Best ${pd.bestScore} | ${pd.gamesPlayed} games`;
+  }
 }
 
 function startGame(){
   document.getElementById('scr-title').style.display='none';
   document.getElementById('scr-over').style.display='none';
   // reset
-  score=0; worldX=0; prevWorldX=0;
+  score=0; worldX=0; prevWorldX=0; lastHpRegenDist=0;
+  currentBiomeIdx=0; biomeTransition=0; biomeAnnounce=0;
   keys={}; mkeys.left=false; mkeys.right=false; mkeys.jump=false; mkeys.atk=false;
   Object.assign(P,{x:140,y:GY,vx:0,vy:0,onGround:false,jumps:0,
-    hp:5,maxHp:5,inv:0,atk:0,atkCD:0,atkId:0,frame:0,fTimer:0,facing:1,state:'idle'});
+    hp:8,maxHp:8,inv:0,atk:0,atkCD:0,atkId:0,frame:0,fTimer:0,facing:1,state:'idle'});
   particles=[]; floats=[]; initStars(); initWorld();
   running=true;
   updateHUD();
@@ -848,7 +997,7 @@ if('ontouchstart' in window){
 }
 
 initStars();
-loadBest(); // load saved best score from storage
+fetchPlayerIP(); // load player IP and leaderboard data
 </script>
 </body>
 </html>
